@@ -1,0 +1,6 @@
+database:
+  timeout_seconds: 5
+  sslmode: false
+
+data_dump:
+  file_name: data_dump1.csv

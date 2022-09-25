@@ -1,0 +1,51 @@
+version: "3.7"
+services:
+  database:
+    image: postgres:latest
+    restart: on-failure
+    env_file:
+      - .env
+    volumes:
+      - data:/var/lib/postgres/data/
+    ports: [ "5432:5432" ]
+    networks:
+      - findhotel
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env
+    restart: on-failure
+    command: /bin/sh -c '/wait-for.sh database:5432 -- /app -p cmd/client-api/config.yaml'
+    networks:
+      - findhotel
+    ports: ["3000:3000"]
+    depends_on:
+      - database
+  migration:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    command: /bin/sh -c '/wait-for.sh database:5432 -- /migration -dir=geolocation up'
+    restart: on-failure
+    env_file:
+      - .env
+    networks:
+      - findhotel
+    depends_on:
+      - database
+  importer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env
+    restart: on-failure
+    command: /bin/sh -c '/wait-for.sh database:5432 -- /import -p cmd/import/config.yaml -s cmd/import/data_dump1.csv'
+    networks:
+      - findhotel
+    depends_on:
+      - database
+networks:
+  findhotel:
+volumes:
+  data:

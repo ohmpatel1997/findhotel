@@ -1,46 +1,57 @@
 package main
 
 import (
-	"github.com/ohmpatel1997/findhotel-geolocation/integration/log"
-	"github.com/ohmpatel1997/findhotel-geolocation/integration/repository"
-	"github.com/ohmpatel1997/findhotel-geolocation/integration/router"
-	"github.com/ohmpatel1997/findhotel-geolocation/internal/controller"
-	model_manager "github.com/ohmpatel1997/findhotel-geolocation/internal/model-manager"
-	"github.com/ohmpatel1997/findhotel-geolocation/internal/service"
+	"flag"
+	"fmt"
 	"net/http"
 	"os"
+
+	"github.com/ohmpatel1997/findhotel/internal/controller"
+	"github.com/ohmpatel1997/findhotel/internal/model"
+	"github.com/ohmpatel1997/findhotel/internal/service"
+	"github.com/ohmpatel1997/findhotel/lib/config"
+	"github.com/ohmpatel1997/findhotel/lib/db/init"
+	"github.com/ohmpatel1997/findhotel/lib/log"
+	"github.com/ohmpatel1997/findhotel/lib/router"
 )
 
 func main() {
-	l := log.NewLogger()
+	cfgPath := flag.String("p", "./cmd/client-api/config.yaml", "The configuration path")
+	flag.Parse()
 
-	l.Info("### Starting up client api ###")
-
-	connStr := os.Getenv("DATABASE_URL")
-	if len(connStr) == 0 {
-		l.Panic("no conn string found")
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		panic(err)
 	}
 
-	rdb, err := repository.NewPGConnection(nil, &connStr)
+	l := zlog.New()
+	l.Info("### Starting up client api ###", nil)
+
+	host := os.Getenv("POSTGRES_HOST")
+	dbName := os.Getenv("POSTGRES_DB")
+	password := os.Getenv("POSTGRES_PASSWORD")
+	user := os.Getenv("POSTGRES_USER")
+	dbPort := os.Getenv("POSTGRES_PORT")
+	conStr := fmt.Sprintf("postgres://%v:%v@%v:%v/%v", user, password, host, dbPort, dbName)
+
+	db, err := pgsql.New(cfg.DB, conStr)
 	if err != nil {
-		l.PanicD("Error getting read connection", log.Fields{"err": err.Error()})
+		panic(err)
 	}
 
-	f := repository.NewFinder(rdb)
-	c := repository.NewCuder(rdb)
-	manager := model_manager.NewGeoLocationManager(l, c, f)
+	manager := model.NewGeoLocationManager(db)
 
-	srv := service.NewGeolocationService(l, manager)
-	cntrl := controller.NewController(l, srv)
-	router := registerRoutes(cntrl, l)
+	srv := service.NewGeolocationService(manager)
+	cntrl := controller.NewController(srv)
+	router := registerRoutes(cntrl)
 
-	err = router.ListenAndServeTLS(os.Getenv("CONTAINER_PORT"), nil)
+	err = router.ListenAndServeTLS(cfg.Server)
 	if err != nil {
-		l.Panic(err.Error())
+		panic(err)
 	}
 }
 
-func registerRoutes(clientCntrl controller.ClientController, l log.Logger) router.Router {
+func registerRoutes(clientCntrl controller.ClientController) router.Router {
 	r := router.NewBasicRouter()
 
 	r.Route(clientCntrl.GetAPIVersionPath("/ip-info"), func(r router.Router) {

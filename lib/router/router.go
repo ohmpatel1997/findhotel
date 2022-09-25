@@ -1,15 +1,19 @@
 package router
 
 import (
-	"crypto/tls"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ohmpatel1997/findhotel-geolocation/integration/log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/go-chi/chi"
+	"github.com/ohmpatel1997/findhotel/lib/config"
+	zlog "github.com/ohmpatel1997/findhotel/lib/log"
 )
 
 const (
@@ -34,7 +38,7 @@ type Router interface {
 	HandleFunc(string, http.HandlerFunc)
 	With(middlewares ...func(http.Handler) http.Handler) Router
 
-	ListenAndServeTLS(string, *tls.Config) error
+	ListenAndServeTLS(cfg *config.Server) error
 	ServeHTTP(http.ResponseWriter, *http.Request)
 }
 
@@ -47,42 +51,42 @@ func NewBasicRouter() Router {
 	rchi := chi.NewRouter()
 	rchi.Use(LoggerAndRecover)
 
-	return router{
+	return &router{
 		chi: rchi,
 	}
 }
 
-func (r router) With(middlewares ...func(http.Handler) http.Handler) Router {
+func (r *router) With(middlewares ...func(http.Handler) http.Handler) Router {
 	r.chi = r.chi.With(middlewares...).(*chi.Mux)
 	return r
 }
 
-func (r router) Delete(p string, h http.HandlerFunc, middlewares ...func(http.Handler) http.Handler) {
+func (r *router) Delete(p string, h http.HandlerFunc, middlewares ...func(http.Handler) http.Handler) {
 	r.chi.With(middlewares...).Delete(p, h)
 }
 
-func (r router) Get(p string, h http.HandlerFunc, middlewares ...func(http.Handler) http.Handler) {
+func (r *router) Get(p string, h http.HandlerFunc, middlewares ...func(http.Handler) http.Handler) {
 	r.chi.With(middlewares...).Get(p, h)
 }
 
-func (r router) Patch(p string, h http.HandlerFunc, middlewares ...func(http.Handler) http.Handler) {
+func (r *router) Patch(p string, h http.HandlerFunc, middlewares ...func(http.Handler) http.Handler) {
 	r.chi.With(middlewares...).Patch(p, h)
 }
 
-func (r router) Post(p string, h http.HandlerFunc, middlewares ...func(http.Handler) http.Handler) {
+func (r *router) Post(p string, h http.HandlerFunc, middlewares ...func(http.Handler) http.Handler) {
 	r.chi.With(middlewares...).Post(p, h)
 }
 
-func (r router) Put(p string, h http.HandlerFunc, middlewares ...func(http.Handler) http.Handler) {
+func (r *router) Put(p string, h http.HandlerFunc, middlewares ...func(http.Handler) http.Handler) {
 	r.chi.With(middlewares...).Put(p, h)
 }
 
-func (r router) Options(p string, h http.HandlerFunc, middlewares ...func(http.Handler) http.Handler) {
+func (r *router) Options(p string, h http.HandlerFunc, middlewares ...func(http.Handler) http.Handler) {
 	r.chi.With(middlewares...).Options(p, h)
 }
 
-func (r router) Route(p string, fn func(r Router)) Router {
-	nr := router{chi.NewRouter()} //get new router
+func (r *router) Route(p string, fn func(r Router)) Router {
+	nr := &router{chi.NewRouter()} //get new router
 
 	if fn != nil {
 		fn(nr) //register the sub path
@@ -92,41 +96,53 @@ func (r router) Route(p string, fn func(r Router)) Router {
 	return nr
 }
 
-func (r router) Mount(p string, h http.Handler) {
+func (r *router) Mount(p string, h http.Handler) {
 	r.chi.Mount(p, h)
 }
 
-func (r router) Handle(p string, h http.Handler) {
+func (r *router) Handle(p string, h http.Handler) {
 	r.chi.Handle(p, h)
 }
 
-func (r router) HandleFunc(p string, h http.HandlerFunc) {
+func (r *router) HandleFunc(p string, h http.HandlerFunc) {
 	r.chi.HandleFunc(p, h)
 }
 
-func (r router) ListenAndServeTLS(listenPort string, config *tls.Config) error {
-	if listenPort == "" {
-		return errors.New("invalid or missing listen port")
-	}
-
+func (r *router) ListenAndServeTLS(cfg *config.Server) error {
 	server := &http.Server{
-		Addr:      fmt.Sprintf(":%s", listenPort),
-		Handler:   r.chi,
-		TLSConfig: config,
+		Addr:         fmt.Sprintf(":%s", cfg.Port),
+		Handler:      r.chi,
+		ReadTimeout:  time.Duration(cfg.ReadTimeout) * time.Second,
+		WriteTimeout: time.Duration(cfg.WriteTimeout) * time.Second,
 	}
 
-	if config != nil {
-		server.TLSConfig.BuildNameToCertificate()
+	go func() {
+		err := server.ListenAndServe()
+		switch {
+		case err != nil && !errors.Is(err, http.ErrServerClosed):
+			zlog.Logger().Error("error running server", err, nil)
+		}
+	}()
+
+	// Wait for interrupt signal to gracefully shutdown the server with a timeout of 10 seconds.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	<-quit
+
+	zlog.Logger().Info("gracefully shutting down the servers...!", nil)
+
+	localCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(localCtx); err != nil {
+		zlog.Logger().Error("Forcefully shutting down the server", err, nil)
 	}
 
-	if _, err := os.Stat(defaultCertLocation); os.IsNotExist(err) {
-		return server.ListenAndServe()
-	}
-
-	return server.ListenAndServe()
+	zlog.Logger().Info("server shutdown", nil)
+	return nil
 }
 
-func (r router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (r *router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	r.chi.ServeHTTP(w, req)
 }
 
@@ -134,7 +150,6 @@ func (r router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 type Response struct {
 	Writer http.ResponseWriter
 	Data   interface{}
-	Logger log.Logger
 	Status int
 }
 
@@ -156,7 +171,6 @@ func RenderJSON(r Response) {
 	r.Writer.Header().Set("Content-Type", "application/json")
 
 	if err != nil {
-		r.Logger.ErrorD("Error marshalling repsonse data", log.Fields{"err": err.Error()})
 
 		r.Writer.WriteHeader(http.StatusInternalServerError)
 		return
@@ -167,22 +181,4 @@ func RenderJSON(r Response) {
 	}
 
 	r.Writer.Write(j)
-}
-
-func GetLogger(r *http.Request) log.Logger {
-	ctx := r.Context()
-
-	l, ok := ctx.Value(loggerKey).(log.Logger)
-
-	//If the logger isn't present in the request(this should never happen)
-	//Let's add a logger to the request, but log a warning
-	if !ok {
-		l = log.NewLogger()
-
-		*r = *addLoggerContextToRequest(l, r)
-
-		l.WarnD("Logger missing from request context", log.Fields{"path": r.URL.Path})
-	}
-
-	return l
 }
