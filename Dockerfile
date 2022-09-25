@@ -2,8 +2,6 @@ FROM  golang:1.17.3-alpine3.13 AS builder
 
 WORKDIR code
 
-RUN echo $(pwd)
-
 COPY go.mod .
 COPY go.sum .
 

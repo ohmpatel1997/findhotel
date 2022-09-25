@@ -42,7 +42,7 @@ func (m *manager) FindDataByIP(ctx context.Context, ip string) (*Geolocation, bo
 
 func (m *manager) BulkInsert(ctx context.Context, geolocation []*Geolocation) error {
 	return m.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
-		_, err := tx.Model(geolocation).Insert()
+		_, err := tx.Model(&geolocation).Insert()
 		return err
 	})
 }

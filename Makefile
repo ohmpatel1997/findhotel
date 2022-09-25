@@ -11,4 +11,4 @@ reset-app:
 	docker-compose down
 
 import:
-	docker-compose up -d importer
+	docker-compose up -d database migration importer
