@@ -12,3 +12,6 @@ reset-app:
 
 import:
 	docker-compose up -d database migration importer
+
+run-tests:
+	go clean --testcache && go test ./...

@@ -9,10 +9,6 @@ import (
 	zlog "github.com/ohmpatel1997/findhotel/lib/log"
 )
 
-const loggerKey = ctxKey("rlogger")
-
-type ctxKey string
-
 func LoggerAndRecover(next http.Handler) http.Handler {
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		sw := statusWriter{ResponseWriter: w}

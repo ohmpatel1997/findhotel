@@ -16,13 +16,6 @@ import (
 	zlog "github.com/ohmpatel1997/findhotel/lib/log"
 )
 
-const (
-	defaultCertLocation = "./ssl/cert.pem"
-	defaultKeyLocation  = "./ssl/key.pem"
-
-	defaultHealthCheckPath = "/healthcheck.html"
-)
-
 // Router interface, a subset of chi with some convenience methods
 type Router interface {
 	Delete(string, http.HandlerFunc, ...func(http.Handler) http.Handler)
