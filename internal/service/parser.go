@@ -6,7 +6,6 @@ import (
 	"io"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ohmpatel1997/findhotel/internal/common"
@@ -54,7 +53,6 @@ func (p *parser) ParseAndStore() (float64, int64, int64, error) {
 
 	var validDataCount int64 = 0
 	var inValidDataCount int64 = 0
-	var wg sync.WaitGroup
 	visitedIP := make(map[string]bool) // will keep track of already visited ip address
 
 	for {
@@ -77,8 +75,6 @@ func (p *parser) ParseAndStore() (float64, int64, int64, error) {
 	}
 
 	close(outPutChan)
-
-	wg.Wait() //wait ExtractAndLoad
 
 	return time.Since(timeThen).Seconds(), inValidDataCount, validDataCount, nil
 }
