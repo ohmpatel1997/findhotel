@@ -57,6 +57,14 @@ Now you can call the API at `GET http://localhost:3000/v1/ip-info?ip=<ip_address
 
 
 
+<h1> Testing </h1>
+
+The project uses mockery tool (https://github.com/vektra/mockery) to generate the mocks.
+
+The project contains various unit tests which can be performed locally. The project maintains an `.env.test` file 
+to use the docker env variables which is used to fetch the database docker images and run it in container for certain tests, not all.
+
+Please have a look at the `.env.test` file and populate the required information mention there to run certain tests.
 
 
 ------------------------------------------------------------------------------------------------------------------------
