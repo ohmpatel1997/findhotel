@@ -40,7 +40,7 @@ services:
       dockerfile: Dockerfile
     env_file: .env
     restart: on-failure
-    command: /bin/sh -c '/wait-for.sh database:5432 -- /import -p cmd/import/config.yaml -s cmd/import/data_dump1.csv'
+    command: /bin/sh -c '/wait-for.sh database:5432 -- /import -p cmd/import/config.yaml -s cmd/import/data_dump.csv'
     networks:
       - findhotel
     depends_on:

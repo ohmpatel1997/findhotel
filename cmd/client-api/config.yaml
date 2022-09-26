@@ -4,7 +4,6 @@ database:
 
 server:
   port: 9090
-  debug: true
   read_timeout_seconds: 360
   write_timeout_seconds: 360
   cors: ["*"]

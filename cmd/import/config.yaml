@@ -3,4 +3,4 @@ database:
   sslmode: false
 
 data_dump:
-  file_name: data_dump1.csv
+  file_name: data_dump.csv

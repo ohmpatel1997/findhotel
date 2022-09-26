@@ -15,6 +15,8 @@ import (
 func main() {
 	_ = zlog.New()
 
+	zlog.Logger().Info("importing the data. please wait....", nil)
+
 	cfgPath := flag.String("p", "./cmd/import/config.yaml", "The configuration path")
 	dumpFilePath := flag.String("s", "./cmd/import/data_dump.csv", "The configuration path")
 	flag.Parse()
