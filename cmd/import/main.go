@@ -53,5 +53,5 @@ func main() {
 
 	zlog.Logger().Info("Successfully Parsed And Stored", nil)
 
-	zlog.Logger().Info("Metrics: ", zlog.ParamsType{"Time Taken": timeTaken, "Valid Data": validData, "Invalid Data": invalid})
+	zlog.Logger().Info("Metrics", zlog.ParamsType{"Time Taken": timeTaken, "Valid Data": validData, "Invalid Data": invalid})
 }

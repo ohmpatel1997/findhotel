@@ -15,22 +15,13 @@ func (c *clientController) GetGeolocationData(w http.ResponseWriter, r *http.Req
 	req := new(service.GetRequest)
 	req.IP = r.URL.Query().Get(ParamIP)
 	if len(req.IP) == 0 {
-		router.RenderJSON(router.Response{
-			Writer: w,
-			Data:   router.HttpError{Message: "path param could not be found"},
-			Status: 400,
-		})
+		router.RenderError(w, router.NewHttpError("path param could not be found", 400))
 		return
 	}
 
 	response, err := c.geolocationSrv.GetIPData(r.Context(), req)
 	if err != nil {
-		router.RenderJSON(router.Response{
-			Writer: w,
-			Data:   err,
-			Status: 500,
-		})
-
+		router.RenderError(w, err)
 		return
 	}
 

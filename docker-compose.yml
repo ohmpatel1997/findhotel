@@ -19,7 +19,7 @@ services:
     command: /bin/sh -c '/wait-for.sh database:5432 -- /app -p cmd/client-api/config.yaml'
     networks:
       - findhotel
-    ports: ["3000:3000"]
+    ports: ["9090:9090"]
     depends_on:
       - database
   migration:

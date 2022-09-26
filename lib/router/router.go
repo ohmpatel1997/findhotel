@@ -155,10 +155,14 @@ type Response struct {
 
 type HttpError struct {
 	Message string `json:"message"`
-	Status  int32  `json:"status"`
+	Status  int    `json:"status"`
 }
 
-func NewHttpError(message string, status int32) *HttpError {
+func (e *HttpError) Error() string {
+	return fmt.Sprintf("%s:%d", e.Message, e.Status)
+}
+
+func NewHttpError(message string, status int) *HttpError {
 	return &HttpError{message, status}
 }
 
@@ -171,7 +175,6 @@ func RenderJSON(r Response) {
 	r.Writer.Header().Set("Content-Type", "application/json")
 
 	if err != nil {
-
 		r.Writer.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -181,4 +184,27 @@ func RenderJSON(r Response) {
 	}
 
 	r.Writer.Write(j)
+}
+
+func RenderError(r http.ResponseWriter, err error) {
+	httpErr := &HttpError{
+		Message: "Internal Server Error",
+		Status:  500,
+	}
+	r.Header().Set("Content-Type", "application/json")
+
+	var httpError *HttpError
+	switch {
+	case errors.As(err, &httpError):
+		httpErr.Status = httpError.Status
+		httpErr.Message = httpError.Message
+	}
+
+	r.WriteHeader(httpError.Status)
+	resp, err := json.Marshal(httpError)
+	if err != nil {
+		r.Write([]byte("internal server error"))
+		return
+	}
+	r.Write(resp)
 }

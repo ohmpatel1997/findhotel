@@ -1,5 +1,5 @@
 database:
-  timeout_seconds: 5
+  timeout_seconds: 50
   sslmode: false
 
 data_dump:

@@ -3,10 +3,7 @@ package service
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"io"
-	"math"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,11 +23,11 @@ type ParserService interface {
 }
 
 type parser struct {
-	f       *os.File
+	f       io.Reader
 	manager model.GeoLocationManager
 }
 
-func NewParser(f *os.File, mn model.GeoLocationManager) ParserService {
+func NewParser(f io.Reader, mn model.GeoLocationManager) ParserService {
 	return &parser{
 		f:       f,
 		manager: mn,
@@ -38,10 +35,8 @@ func NewParser(f *os.File, mn model.GeoLocationManager) ParserService {
 }
 
 func (p *parser) ParseAndStore() (float64, int64, int64, error) {
-
 	timeThen := time.Now()
 	r := bufio.NewReader(p.f)
-
 	firstLine, _, err := r.ReadLine()
 	if err != nil {
 		return 0, 0, 0, err
@@ -54,22 +49,13 @@ func (p *parser) ParseAndStore() (float64, int64, int64, error) {
 		positions[i] = header
 	}
 
-	var invalidDataCountFromFirstPass int64 = 0
-	var invalidDataCountFromSecondPass int64 = 0
+	outPutChan := make(chan *model.Geolocation, 10000)
+	go p.saveToDB(outPutChan)
+
 	var validDataCount int64 = 0
-
-	outPutChan := make(chan model.Geolocation, 10000)
-	savToDbChan := make(chan model.Geolocation, 10000)
+	var inValidDataCount int64 = 0
 	var wg sync.WaitGroup
-	var wg2 sync.WaitGroup
-
-	go func() {
-		validDataCount, invalidDataCountFromSecondPass = p.extractAndLoad(outPutChan, &wg, savToDbChan, &wg2)
-	}()
-
-	go p.SaveToDB(savToDbChan, &wg2)
-
-	//PrintMemUsage()
+	visitedIP := make(map[string]bool) // will keep track of already visited ip address
 
 	for {
 		buf := make([]byte, 500*1024)
@@ -81,193 +67,118 @@ func (p *parser) ParseAndStore() (float64, int64, int64, error) {
 		}
 
 		nextUntillNewline, err := r.ReadBytes('\n')
-
 		if err != io.EOF {
 			buf = append(buf, nextUntillNewline...)
 		}
 
-		invalidDataCountFromFirstPass += processChunk(buf, positions, outPutChan, &wg)
+		c1, c2 := processChunk(buf, positions, outPutChan, visitedIP)
+		inValidDataCount += c1
+		validDataCount += c2
 	}
 
-	//PrintMemUsage()
 	close(outPutChan)
 
-	wg.Wait()  //wait ExtractAndLoad
-	wg2.Wait() //wait until saving data to db
+	wg.Wait() //wait ExtractAndLoad
 
-	return time.Since(timeThen).Seconds(), invalidDataCountFromFirstPass + invalidDataCountFromSecondPass, validDataCount, nil
+	return time.Since(timeThen).Seconds(), inValidDataCount, validDataCount, nil
 }
 
-func processChunk(chunk []byte, positions map[int]string, outPutChan chan<- model.Geolocation, wg *sync.WaitGroup) int64 {
-
-	var wg2 sync.WaitGroup
-	var invalid int64 = 0
+func processChunk(chunk []byte, positions map[int]string, outPutChan chan<- *model.Geolocation, visitedIP map[string]bool) (int64, int64) {
+	var invalidCount int64 = 0
+	var validCount int64 = 0
 	logs := string(chunk)
 
 	logsSlice := strings.Split(logs, "\n")
-
-	chunkSize := 500
 	n := len(logsSlice)
-	noOfThread := n / chunkSize
 
-	if n%chunkSize != 0 {
-		noOfThread++
+	for i := 0; i < n; i++ {
+		geoloc, valid := isValidLine(positions, logsSlice[i], visitedIP)
+		if !valid {
+			invalidCount++
+		} else {
+			outPutChan <- geoloc
+			visitedIP[geoloc.IP] = true
+			validCount++
+		}
 	}
 
-	for i := 0; i < (noOfThread); i++ {
+	return invalidCount, validCount //return the invalid data count
+}
 
-		wg2.Add(1) //span out locally
+func isValidLine(positions map[int]string, text string, visitedIP map[string]bool) (*model.Geolocation, bool) {
+	if len(text) == 0 { //in case there is line gap
+		return nil, false
+	}
+	logSlice := strings.Split(text, ",")
+	if len(logSlice) != 7 { //if not valid number of fields
+		return nil, false
+	}
 
-		go func(c, j int) {
-			for ; c < j; c++ { //first stage of cleaning
-				text := logsSlice[c]
-				if len(text) == 0 { //in case there is line gap
-					continue
-				}
-				logSlice := strings.Split(text, ",")
-
-				if len(logSlice) != 7 { //if not valid number of fields
-					invalid++
-					continue
-				}
-
-				geoloc := model.Geolocation{}
-				invalidData := false
-				for i, value := range logSlice {
-
-					if len(value) == 0 { //if empty value
-						invalid++
-						invalidData = true
-						break
-					}
-					col := positions[i]
-					switch col {
-					case common.IP:
-						geoloc.IP = value
-					case common.CountryCode:
-						geoloc.CountryCode = value
-					case common.Country:
-						geoloc.Country = value
-					case common.Longitude:
-						geoloc.Longitude = value
-					case common.Latitude:
-						geoloc.Latitude = value
-					case common.MysteryValue:
-						geoloc.MysteryValue = value
-					case common.City:
-						geoloc.City = value
-					default: //if some other columns come in
-						invalidData = true
-						invalid++
-						break
-					}
-				}
-
-				if !invalidData {
-					wg.Add(1)            //increment counter for data processing
-					outPutChan <- geoloc //send to output chan
-				}
-
+	geoloc := model.Geolocation{}
+	for i, value := range logSlice {
+		if len(value) == 0 { //if empty value
+			return nil, false
+		}
+		col := positions[i]
+		switch col {
+		case common.IP:
+			IPValid := common.IsIpv4Regex(value)
+			if !IPValid {
+				return nil, false
 			}
-			wg2.Done() //done processing a chunk
+			if ok := visitedIP[value]; ok {
+				return nil, false
+			}
+			geoloc.IP = value
+		case common.CountryCode:
+			geoloc.CountryCode = value
+		case common.Country:
+			geoloc.Country = value
+		case common.Longitude:
+			longitude, err := strconv.ParseFloat(value, 64)
+			if err != nil {
+				return nil, false
+			}
+			if longitude > 180 || longitude < -180 { //invalid longitude coordinates
+				return nil, false
+			}
+			geoloc.Longitude = value
+		case common.Latitude:
+			latitude, err := strconv.ParseFloat(value, 64)
+			if err != nil {
+				return nil, false
+			}
+			if latitude > 90 || latitude < -90 { //invalid latitude coordinates
+				return nil, false
+			}
 
-		}(i*chunkSize, int(math.Min(float64((i+1)*chunkSize), float64(len(logsSlice))))) //prevent overflow
+			geoloc.Latitude = value
+		case common.MysteryValue:
+			geoloc.MysteryValue = value
+		case common.City:
+			geoloc.City = value
+		default: //if some other columns come in
+			return nil, false
+		}
 	}
-
-	wg2.Wait()
-	return invalid //return the invalid data count
+	return &geoloc, true
 }
 
-// extractAndLoad  will extract the data, checks the validity and load it into database
-func (p *parser) extractAndLoad(outPutChan <-chan model.Geolocation, wg *sync.WaitGroup, saveToDbChan chan<- model.Geolocation, wg2 *sync.WaitGroup) (int64, int64) {
-
-	visitedIP := make(map[string]bool)          // will keep track of already visited ip address
-	visitedCoordinates := make(map[string]bool) // will keep track of already visited coordinates
-	var invalidCount int64
-	var validCount int64
-
-	for data := range outPutChan { // second stage of cleaning
-		local_data := data
-		IPValid := common.IsIpv4Regex(local_data.IP)
-		if !IPValid {
-			invalidCount++
-			wg.Done()
-			continue
-		}
-
-		latitude, err := strconv.ParseFloat(local_data.Latitude, 64)
-		if err != nil {
-			invalidCount++
-			wg.Done()
-			continue
-		}
-
-		longitude, err := strconv.ParseFloat(local_data.Longitude, 64)
-		if err != nil {
-			invalidCount++
-			wg.Done()
-			continue
-		}
-
-		if latitude > 90 || latitude < -90 { //invalid latitude coordinates
-			invalidCount++
-			wg.Done()
-			continue
-		}
-
-		if longitude > 180 || longitude < -180 { //invalid longitude coordinates
-			invalidCount++
-			wg.Done()
-			continue
-		}
-
-		if ok := visitedIP[local_data.IP]; ok {
-			invalidCount++
-			wg.Done()
-			continue
-		}
-
-		coordinates := fmt.Sprintf("%s+%s", data.Latitude, data.Longitude)
-		if ok := visitedCoordinates[coordinates]; ok {
-			invalidCount++
-			wg.Done()
-			continue
-		}
-
-		visitedIP[data.IP] = true
-		visitedCoordinates[coordinates] = true
-		validCount++
-
-		if validCount%bulkSize == 0 {
-			wg2.Add(1) //add count for saving data to db
-		}
-		saveToDbChan <- local_data //push to save data to db
-
-		wg.Done() //decrement for process done
-	}
-
-	close(saveToDbChan) //once all data have been processed, close save to db chan
-	return validCount, invalidCount
-}
-
-func (p *parser) SaveToDB(savChan <-chan model.Geolocation, wg2 *sync.WaitGroup) {
+func (p *parser) saveToDB(savChan <-chan *model.Geolocation) {
 	resultSlice := make([]*model.Geolocation, 0, bulkSize) //8191, coz postgres supports 65535 parameters in bulk
 	for data := range savChan {
-		resultSlice = append(resultSlice, &data)
+		resultSlice = append(resultSlice, data)
 		if len(resultSlice) == bulkSize {
 			var local_data []*model.Geolocation
 			local_data = append(local_data, resultSlice...)
 			go func() {
-				defer wg2.Done()
 				err := p.manager.BulkInsert(context.Background(), local_data)
 				if err != nil {
 					zlog.Logger().Warn("Error occurred while bulk insert", zlog.ParamsType{"Error": err.Error()})
 					return
 				}
 			}()
-
-			resultSlice = resultSlice[:0]
+			resultSlice = nil
 		}
-
 	}
 }

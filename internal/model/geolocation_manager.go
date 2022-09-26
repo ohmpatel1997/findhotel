@@ -8,6 +8,7 @@ import (
 	"github.com/go-pg/pg/v10"
 )
 
+//go:generate mockery --name GeoLocationManager --output=mocks
 type GeoLocationManager interface {
 	FindDataByIP(ctx context.Context, ip string) (*Geolocation, bool, error)
 	BulkInsert(ctx context.Context, geolocation []*Geolocation) error
