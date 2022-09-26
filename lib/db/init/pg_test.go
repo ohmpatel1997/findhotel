@@ -2,27 +2,26 @@ package pgsql_test
 
 import (
 	"fmt"
-	"imploy/lib/mock"
 	"testing"
 
-	"imploy/lib/config"
-	pgsql "imploy/lib/pgsql/init"
-	"imploy/lib/user"
+	"github.com/ohmpatel1997/findhotel/internal/model"
+	"github.com/ohmpatel1997/findhotel/lib/config"
+	pgsql "github.com/ohmpatel1997/findhotel/lib/db/init"
+	"github.com/ohmpatel1997/findhotel/lib/db/mocks"
 
 	"github.com/go-pg/pg/v10/orm"
-
 	"github.com/stretchr/testify/assert"
 )
 
 func TestNew(t *testing.T) {
 	t.Parallel()
 
-	pool, resource := mock.NewPGContainer(t)
+	pool, resource := mocks.NewPGContainer(t)
+	defer mocks.CloseContainer(t, pool, resource)
 
 	_, err := pgsql.New(&config.Database{
-		LogQueries: false,
-		Timeout:    1,
-		SSLMode:    false,
+		Timeout: 1,
+		SSLMode: false,
 	}, "PSN")
 	if err == nil {
 		t.Error("Expected error")
@@ -30,30 +29,28 @@ func TestNew(t *testing.T) {
 
 	_, err = pgsql.New(
 		&config.Database{
-			LogQueries: false,
-			Timeout:    0,
-			SSLMode:    false,
+			Timeout: 0,
+			SSLMode: false,
 		}, fmt.Sprintf("postgres://postgres:secret@localhost:%s/%s", resource.GetPort("1234/tcp"), "imploy"))
 	if err == nil {
 		t.Error("Expected error")
 	}
 
-	db := mock.NewDB(t, pool, resource)
+	db := mocks.NewDB(t, pool, resource)
 
-	var usr user.User
+	var geo model.Geolocation
 
-	err = db.Model(&usr).CreateTable(&orm.CreateTableOptions{FKConstraints: true})
+	err = db.Model(&geo).CreateTable(&orm.CreateTableOptions{FKConstraints: true})
 	if err != nil {
 		t.Fatalf("Error creating schema %v", err)
 	}
 
-	usr = user.User{Email: "john@wick.com"}
-	_, err = db.Model(&usr).Insert()
+	_, err = db.Model(&geo).Insert()
 	if err != nil {
 		t.Fatalf("Error inserting new user %v", err)
 	}
 
-	err = db.Model(&usr).WherePK().Select()
+	err = db.Model(&geo).WherePK().Select()
 	if err != nil {
 		t.Fatal("Error getting Users")
 	}
@@ -65,7 +62,4 @@ func TestNew(t *testing.T) {
 		t.Fatal("Error closing DB")
 	}
 
-	if err := pool.Purge(resource); err != nil {
-		t.Fatalf("Could not purge resource: %s", err)
-	}
 }

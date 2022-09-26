@@ -7,7 +7,7 @@ import (
 )
 
 type Geolocation struct {
-	ID           uuid.UUID `pg:"id"`
+	ID           uuid.UUID `pg:"id, type:uuid, default:gen_random_uuid(), unique"`
 	IP           string    `pg:"ip"`
 	Country      string    `pg:"country"`
 	CountryCode  string    `pg:"country_code"`
