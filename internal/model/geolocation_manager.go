@@ -3,14 +3,14 @@ package model
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/go-pg/pg/v10"
+	"github.com/ohmpatel1997/findhotel/lib/router"
 )
 
 //go:generate mockery --name GeoLocationManager --output=mocks
 type GeoLocationManager interface {
-	FindDataByIP(ctx context.Context, ip string) (*Geolocation, bool, error)
+	FindDataByIP(ctx context.Context, ip string) (*Geolocation, error)
 	BulkInsert(ctx context.Context, geolocation []*Geolocation) error
 }
 
@@ -24,21 +24,21 @@ func NewGeoLocationManager(db *pg.DB) GeoLocationManager {
 	}
 }
 
-func (m *manager) FindDataByIP(ctx context.Context, ip string) (*Geolocation, bool, error) {
+func (m *manager) FindDataByIP(ctx context.Context, ip string) (*Geolocation, error) {
 	var resp Geolocation
 
 	if len(ip) == 0 {
-		return nil, false, fmt.Errorf("ip can not be empty")
+		return nil, router.NewHttpError("invalid ip", 400)
 	}
 
 	err := m.db.ModelContext(ctx, &resp).Where("ip = ?", ip).Select()
 	switch {
 	case errors.Is(err, pg.ErrNoRows):
-		return nil, false, fmt.Errorf("data not found with given ip")
+		return nil, router.NewHttpError("data not found with given ip", 404)
 	case err != nil:
-		return nil, false, err
+		return nil, router.NewHttpError(err.Error(), 500)
 	}
-	return &resp, true, nil
+	return &resp, nil
 }
 
 func (m *manager) BulkInsert(ctx context.Context, geolocation []*Geolocation) error {

@@ -27,13 +27,9 @@ func (g *geolocation) GetIPData(ctx context.Context, request *GetRequest) (*GeoL
 		return nil, router.NewHttpError("invalid ip", 400)
 	}
 
-	data, found, err := g.manager.FindDataByIP(ctx, request.IP)
+	data, err := g.manager.FindDataByIP(ctx, request.IP)
 	if err != nil {
-		return nil, router.NewHttpError(err.Error(), 500)
-	}
-
-	if !found {
-		return nil, router.NewHttpError("not found", 404)
+		return nil, err
 	}
 
 	return &GeoLocationResponse{
